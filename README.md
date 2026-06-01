@@ -2,7 +2,9 @@
 
 # Overview
 
-TitanHide is a driver intended to hide debuggers from certain processes. The driver hooks various Nt* kernel functions (using SSDT table hooks) and modifies the return values of the original functions. To hide a process, you must pass a simple structure with a ProcessID and the hiding option(s) to enable, to the driver. The internal API is designed to add hooks with little effort, which means adding features is really easy.
+TitanHide is a driver intended to hide debuggers from certain processes. This variant routes the existing Nt* hiding handlers through InfinityHook syscall tracing/interception instead of SSDT table hooks or code-cave hook transport. To hide a process, you must pass a simple structure with a ProcessID and the hiding option(s) to enable, to the driver. The user-mode API, GUI, and debugger plugin usage remain unchanged.
+
+This InfinityHook variant is x64-only and does not include an SSDT/Hooklib runtime fallback.
 
 The idea for this project was thought of together with cypher, shoutout man!
 
@@ -20,17 +22,14 @@ The idea for this project was thought of together with cypher, shoutout man!
 
 # Test environments
 
-- Windows 10 x64 & x86
-- Windows 8.1 x64 & x86
-- Windows 7 x64 & x86 (SP1)
-- Windows XP x86 (SP3)
-- Windows XP x64 (SP1)
+- Windows 11 x64
+- Windows 10 x64
 
 # Compiling
 
 1. Install Visual Studio 2022.
-2. Install the [WDK10](https://go.microsoft.com/fwlink/?linkid=2128854)/[WDK8](https://go.microsoft.com/fwlink/p/?LinkID=324284)/[WDK7](https://www.microsoft.com/download/confirmation.aspx?id=11800).
-3. Open `TitanHide.sln` and hit compile!
+2. Install the [WDK10](https://go.microsoft.com/fwlink/?linkid=2128854).
+3. Open `TitanHide.sln` and build an x64 configuration.
 
 # Requirements
 
@@ -69,5 +68,6 @@ TitanHideName NotTitanHide
 # Remarks
 
 - When using x64dbg, you can use the TitanHide plugin (available on the download page).
+- This variant is intended for Windows 10/11 x64 VM testing and has no SSDT/Hooklib runtime fallback.
 - **NEVER RUN THIS DRIVER ON A PRODUCTION SYSTEM, ALWAYS USE A VM!**
 
