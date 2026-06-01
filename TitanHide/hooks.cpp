@@ -186,6 +186,24 @@ static NTSTATUS NTAPI HookNtSetInformationThread(
     return Undocumented::NtSetInformationThread(ThreadHandle, ThreadInformationClass, ThreadInformation, ThreadInformationLength);
 }
 
+static NTSTATUS NTAPI HookNtSetInformationProcess(
+    IN HANDLE ProcessHandle,
+    IN PROCESSINFOCLASS ProcessInformationClass,
+    IN PVOID ProcessInformation,
+    IN ULONG ProcessInformationLength)
+{
+    const ULONG pid = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
+    const ULONG targetPid = Misc::GetProcessIDFromProcessHandle(ProcessHandle);
+
+    if(ProcessInformationClass == ProcessDebugFlags && Hider::IsHidden(targetPid, HideProcessDebugFlags))
+    {
+        Log("[TITANHIDE] NtSetInformationProcess(ProcessDebugFlags) by %d for %d\r\n", pid, targetPid);
+        return STATUS_SUCCESS;
+    }
+
+    return Undocumented::NtSetInformationProcess(ProcessHandle, ProcessInformationClass, ProcessInformation, ProcessInformationLength);
+}
+
 static NTSTATUS NTAPI HookNtClose(
     IN HANDLE Handle)
 {
@@ -693,6 +711,8 @@ HOOKS_INITIALIZE_RESULT Hooks::Initialize()
         { "NtQueryObject", (PVOID)HookNtQueryObject, false },
         { "NtQuerySystemInformation", (PVOID)HookNtQuerySystemInformation, false },
         { "NtSetInformationThread", (PVOID)HookNtSetInformationThread, false },
+        { "ZwSetInformationThread", (PVOID)HookNtSetInformationThread, false },
+        { "NtSetInformationProcess", (PVOID)HookNtSetInformationProcess, false },
         { "NtClose", (PVOID)HookNtClose, false },
         { "NtDuplicateObject", (PVOID)HookNtDuplicateObject, false },
         { "NtGetContextThread", (PVOID)HookNtGetContextThread, false },
@@ -712,6 +732,19 @@ HOOKS_INITIALIZE_RESULT Hooks::Initialize()
         int syscallIndex = NTDLL::GetExportSsdtIndex(registrations[i].Name);
         if(syscallIndex == -1)
             return { STATUS_NOT_FOUND, hookCount };
+
+        bool duplicate = false;
+        for(ULONG j = 0; j < hookCount; j++)
+        {
+            if(hooks[j].SyscallIndex == (ULONG)syscallIndex)
+            {
+                hooks[j].HookFunction = registrations[i].Function;
+                duplicate = true;
+                break;
+            }
+        }
+        if(duplicate)
+            continue;
 
         hooks[hookCount].SyscallIndex = (ULONG)syscallIndex;
         hooks[hookCount].HookFunction = registrations[i].Function;
