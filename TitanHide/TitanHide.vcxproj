@@ -183,11 +183,19 @@
     <ClInclude Include="hider.h" />
     <ClInclude Include="hooklib.h" />
     <ClInclude Include="hooks.h" />
+    <ClInclude Include="infinityhook\hde\hde64.h" />
+    <ClInclude Include="infinityhook\hde\pstdint.h" />
+    <ClInclude Include="infinityhook\hde\table64.h" />
+    <ClInclude Include="infinityhook\infinityhook_backend.h" />
+    <ClInclude Include="infinityhook\infinityhook_core.h" />
+    <ClInclude Include="infinityhook\infinityhook_defs.h" />
+    <ClInclude Include="infinityhook\infinityhook_utils.h" />
     <ClInclude Include="log.h" />
     <ClInclude Include="misc.h" />
     <ClInclude Include="ntdll.h" />
     <ClInclude Include="pe.h" />
     <ClInclude Include="ssdt.h" />
+    <ClInclude Include="syscall_resolver.h" />
     <ClInclude Include="threadhidefromdbg.h" />
     <ClInclude Include="TitanHide.h" />
     <ClInclude Include="undocumented.h" />
@@ -195,13 +203,30 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="hider.cpp" />
-    <ClCompile Include="hooklib.cpp" />
+    <ClCompile Include="hooklib.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="hooks.cpp" />
+    <ClCompile Include="infinityhook\hde\hde64.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="infinityhook\infinityhook_backend.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="infinityhook\infinityhook_core.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="infinityhook\infinityhook_utils.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="log.cpp" />
     <ClCompile Include="misc.cpp" />
     <ClCompile Include="ntdll.cpp" />
     <ClCompile Include="pe.cpp" />
-    <ClCompile Include="ssdt.cpp" />
+    <ClCompile Include="ssdt.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="syscall_resolver.cpp" />
     <ClCompile Include="threadhidefromdbg.cpp" />
     <ClCompile Include="TitanHide.cpp" />
     <ClCompile Include="undocumented.cpp" />

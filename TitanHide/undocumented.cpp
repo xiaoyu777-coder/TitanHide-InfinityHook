@@ -1,5 +1,5 @@
 #include "undocumented.h"
-#include "ssdt.h"
+#include "syscall_resolver.h"
 #include "log.h"
 
 typedef NTSTATUS(NTAPI* ZWQUERYINFORMATIONPROCESS)(
@@ -451,55 +451,55 @@ bool Undocumented::UndocumentedInit()
     //SSDT-only functions after this
     if(!NtQO)
     {
-        NtQO = (NTQUERYOBJECT)SSDT::GetFunctionAddress("NtQueryObject");
+        NtQO = (NTQUERYOBJECT)SyscallResolver::GetFunctionAddress("NtQueryObject");
         if(!NtQO)
             return false;
     }
     if(!NtGCT)
     {
-        NtGCT = (NTGETCONTEXTTHREAD)SSDT::GetFunctionAddress("NtGetContextThread");
+        NtGCT = (NTGETCONTEXTTHREAD)SyscallResolver::GetFunctionAddress("NtGetContextThread");
         if(!NtGCT)
             return false;
     }
     if(!NtSCT)
     {
-        NtSCT = (NTSETCONTEXTTHREAD)SSDT::GetFunctionAddress("NtSetContextThread");
+        NtSCT = (NTSETCONTEXTTHREAD)SyscallResolver::GetFunctionAddress("NtSetContextThread");
         if(!NtSCT)
             return false;
     }
     if(!NtCon)
     {
-        NtCon = (NTCONTINUE)SSDT::GetFunctionAddress("NtContinue");
+        NtCon = (NTCONTINUE)SyscallResolver::GetFunctionAddress("NtContinue");
         if(!NtCon)
             return false;
     }
     if(!NtSDBC)
     {
-        NtSDBC = (NTSYSTEMDEBUGCONTROL)SSDT::GetFunctionAddress("NtSystemDebugControl");
+        NtSDBC = (NTSYSTEMDEBUGCONTROL)SyscallResolver::GetFunctionAddress("NtSystemDebugControl");
         if(!NtSDBC)
             return false;
     }
     if((NtBuildNumber & 0xFFFF) >= 6000 && !ZwCrThrEx) // only exists on >= Vista
     {
-        ZwCrThrEx = (ZWCREATETHREADEX)SSDT::GetFunctionAddress("ZwCreateThreadEx");
+        ZwCrThrEx = (ZWCREATETHREADEX)SyscallResolver::GetFunctionAddress("ZwCreateThreadEx");
         if(!ZwCrThrEx)
             return false;
     }
     if((NtBuildNumber & 0xFFFF) >= 6000 && !NtCrThrEx) // only exists on >= Vista
     {
-        NtCrThrEx = (NTCREATETHREADEX)SSDT::GetFunctionAddress("NtCreateThreadEx");
+        NtCrThrEx = (NTCREATETHREADEX)SyscallResolver::GetFunctionAddress("NtCreateThreadEx");
         if(!NtCrThrEx)
             return false;
     }
     if(!ZwTermThr)
     {
-        ZwTermThr = (ZWTERMINATETHREAD)SSDT::GetFunctionAddress("ZwTerminateThread");
+        ZwTermThr = (ZWTERMINATETHREAD)SyscallResolver::GetFunctionAddress("ZwTerminateThread");
         if(!ZwTermThr)
             return false;
     }
     if(!NtTermThr)
     {
-        NtTermThr = (NTTERMINATETHREAD)SSDT::GetFunctionAddress("NtTerminateThread");
+        NtTermThr = (NTTERMINATETHREAD)SyscallResolver::GetFunctionAddress("NtTerminateThread");
         if(!NtTermThr)
             return false;
     }

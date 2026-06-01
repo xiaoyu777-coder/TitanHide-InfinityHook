@@ -1,10 +1,13 @@
 #include "hooks.h"
 #include "undocumented.h"
-#include "ssdt.h"
 #include "hider.h"
 #include "log.h"
 #include "ntdll.h"
 #include "threadhidefromdbg.h"
+
+#ifndef _WIN64
+#error InfinityHook TitanHide variant is x64-only.
+#endif
 
 static UNICODE_STRING DeviceName;
 static wchar_t DeviceNameBuffer[256];
@@ -13,9 +16,9 @@ static wchar_t Win32DeviceBuffer[256];
 
 static void DriverUnload(IN PDRIVER_OBJECT DriverObject)
 {
+    Hooks::Deinitialize();
     IoDeleteSymbolicLink(&Win32Device);
     IoDeleteDevice(DriverObject->DeviceObject);
-    Hooks::Deinitialize();
     NTDLL::Deinitialize();
 }
 
@@ -107,6 +110,8 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
 
     PDEVICE_OBJECT DeviceObject = NULL;
     NTSTATUS status;
+    bool ntdllInitialized = false;
+    bool symbolicLinkCreated = false;
 
     //set callback functions
     DriverObject->DriverUnload = DriverUnload;
@@ -117,17 +122,20 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
     DriverObject->MajorFunction[IRP_MJ_WRITE] = DriverWrite;
 
     //read ntdll.dll from disk so we can use it for exports
-    if(!NT_SUCCESS(NTDLL::Initialize()))
+    status = NTDLL::Initialize();
+    if(!NT_SUCCESS(status))
     {
         Log("[TITANHIDE] Ntdll::Initialize() failed...\r\n");
-        return STATUS_UNSUCCESSFUL;
+        goto Fail;
     }
+    ntdllInitialized = true;
 
     //initialize undocumented APIs
     if(!Undocumented::UndocumentedInit())
     {
         Log("[TITANHIDE] UndocumentedInit() failed...\r\n");
-        return STATUS_UNSUCCESSFUL;
+        status = STATUS_UNSUCCESSFUL;
+        goto Fail;
     }
     Log("[TITANHIDE] UndocumentedInit() was successful!\r\n");
 
@@ -136,7 +144,7 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
     if(!NT_SUCCESS(status))
     {
         Log("[TITANHIDE] FindCrossThreadFlagsOffset() failed: 0x%lX\r\n", status);
-        return status;
+        goto Fail;
     }
 
     //create io device
@@ -150,12 +158,13 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
     if(!NT_SUCCESS(status))
     {
         Log("[TITANHIDE] IoCreateDevice Error...\r\n");
-        return status;
+        goto Fail;
     }
     if(!DeviceObject)
     {
         Log("[TITANHIDE] Unexpected I/O Error...\r\n");
-        return STATUS_UNEXPECTED_IO_ERROR;
+        status = STATUS_UNEXPECTED_IO_ERROR;
+        goto Fail;
     }
     Log("[TITANHIDE] Device %.*ws created successfully!\r\n", DeviceName.Length / sizeof(WCHAR), DeviceName.Buffer);
 
@@ -166,12 +175,30 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
     if(!NT_SUCCESS(status))
     {
         Log("[TITANHIDE] IoCreateSymbolicLink Error...\r\n");
-        return status;
+        goto Fail;
     }
+    symbolicLinkCreated = true;
     Log("[TITANHIDE] Symbolic link %.*ws->%.*ws created!\r\n", Win32Device.Length / sizeof(WCHAR), Win32Device.Buffer, DeviceName.Length / sizeof(WCHAR), DeviceName.Buffer);
 
     //initialize hooking
-    Log("[TITANHIDE] Hooks::Initialize() hooked %d functions\r\n", Hooks::Initialize());
+    HOOKS_INITIALIZE_RESULT hookResult = Hooks::Initialize();
+    if(!NT_SUCCESS(hookResult.Status))
+    {
+        Log("[TITANHIDE] Hooks::Initialize() failed: 0x%lX\r\n", hookResult.Status);
+        status = hookResult.Status;
+        goto Fail;
+    }
+    Log("[TITANHIDE] Hooks::Initialize() hooked %u functions\r\n", hookResult.HookCount);
 
     return STATUS_SUCCESS;
+
+Fail:
+    Hooks::Deinitialize();
+    if(symbolicLinkCreated)
+        IoDeleteSymbolicLink(&Win32Device);
+    if(DeviceObject)
+        IoDeleteDevice(DeviceObject);
+    if(ntdllInitialized)
+        NTDLL::Deinitialize();
+    return status;
 }

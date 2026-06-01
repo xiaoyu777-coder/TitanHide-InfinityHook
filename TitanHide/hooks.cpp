@@ -1,21 +1,11 @@
 #include "hooks.h"
 #include "undocumented.h"
-#include "ssdt.h"
+#include "infinityhook/infinityhook_backend.h"
 #include "hider.h"
 #include "misc.h"
 #include "log.h"
+#include "ntdll.h"
 
-static HOOK hNtQueryInformationProcess = 0;
-static HOOK hNtQueryInformationThread = 0;
-static HOOK hNtQueryObject = 0;
-static HOOK hNtQuerySystemInformation = 0;
-static HOOK hNtClose = 0;
-static HOOK hNtDuplicateObject = 0;
-static HOOK hNtSetInformationThread = 0;
-static HOOK hNtGetContextThread = 0;
-static HOOK hNtSetContextThread = 0;
-static HOOK hNtSystemDebugControl = 0;
-static HOOK hNtCreateThreadEx = 0;
 static KMUTEX gDebugPortMutex;
 
 //https://forum.tuts4you.com/topic/40011-debugme-vmprotect-312-build-886-anti-debug-method-improved/#comment-192824
@@ -685,63 +675,57 @@ static NTSTATUS NTAPI HookNtCreateThreadEx(
     return Undocumented::NtCreateThreadEx(ThreadHandle, DesiredAccess, ObjectAttributes, ProcessHandle, StartRoutine, Argument, CreateFlags, ZeroBits, StackSize, MaximumStackSize, AttributeList);
 }
 
-int Hooks::Initialize()
+HOOKS_INITIALIZE_RESULT Hooks::Initialize()
 {
     KeInitializeMutex(&gDebugPortMutex, 0);
-    int hook_count = 0;
-    hNtQueryInformationProcess = SSDT::Hook("NtQueryInformationProcess", (void*)HookNtQueryInformationProcess);
-    if(hNtQueryInformationProcess)
-        hook_count++;
-    hNtQueryInformationThread = SSDT::Hook("NtQueryInformationThread", (void*)HookNtQueryInformationThread);
-    if(hNtQueryInformationThread)
-        hook_count++;
-    hNtQueryObject = SSDT::Hook("NtQueryObject", (void*)HookNtQueryObject);
-    if(hNtQueryObject)
-        hook_count++;
-    hNtQuerySystemInformation = SSDT::Hook("NtQuerySystemInformation", (void*)HookNtQuerySystemInformation);
-    if(hNtQuerySystemInformation)
-        hook_count++;
-    hNtSetInformationThread = SSDT::Hook("NtSetInformationThread", (void*)HookNtSetInformationThread);
-    if(hNtSetInformationThread)
-        hook_count++;
-    hNtClose = SSDT::Hook("NtClose", (void*)HookNtClose);
-    if(hNtClose)
-        hook_count++;
-    hNtDuplicateObject = SSDT::Hook("NtDuplicateObject", (void*)HookNtDuplicateObject);
-    if(hNtDuplicateObject)
-        hook_count++;
-    hNtGetContextThread = SSDT::Hook("NtGetContextThread", (void*)HookNtGetContextThread);
-    if(hNtGetContextThread)
-        hook_count++;
-    hNtSetContextThread = SSDT::Hook("NtSetContextThread", (void*)HookNtSetContextThread);
-    if(hNtSetContextThread)
-        hook_count++;
-    hNtSystemDebugControl = SSDT::Hook("NtSystemDebugControl", (void*)HookNtSystemDebugControl);
-    if(hNtSystemDebugControl)
-        hook_count++;
-    if((NtBuildNumber & 0xFFFF) >= 6000)
+
+    struct HOOK_REGISTRATION
     {
-        hNtCreateThreadEx = SSDT::Hook("NtCreateThreadEx", (void*)HookNtCreateThreadEx);
-        if(hNtCreateThreadEx)
-            hook_count++;
+        const char* Name;
+        PVOID Function;
+        bool VistaOrNewer;
+    };
+
+    const HOOK_REGISTRATION registrations[] =
+    {
+        { "NtQueryInformationProcess", (PVOID)HookNtQueryInformationProcess, false },
+        { "NtQueryInformationThread", (PVOID)HookNtQueryInformationThread, false },
+        { "NtQueryObject", (PVOID)HookNtQueryObject, false },
+        { "NtQuerySystemInformation", (PVOID)HookNtQuerySystemInformation, false },
+        { "NtSetInformationThread", (PVOID)HookNtSetInformationThread, false },
+        { "NtClose", (PVOID)HookNtClose, false },
+        { "NtDuplicateObject", (PVOID)HookNtDuplicateObject, false },
+        { "NtGetContextThread", (PVOID)HookNtGetContextThread, false },
+        { "NtSetContextThread", (PVOID)HookNtSetContextThread, false },
+        { "NtSystemDebugControl", (PVOID)HookNtSystemDebugControl, false },
+        { "NtCreateThreadEx", (PVOID)HookNtCreateThreadEx, true },
+    };
+
+    INFINITYHOOK_SYSCALL_HOOK hooks[ARRAYSIZE(registrations)] = {};
+    ULONG hookCount = 0;
+
+    for(ULONG i = 0; i < ARRAYSIZE(registrations); i++)
+    {
+        if(registrations[i].VistaOrNewer && (NtBuildNumber & 0xFFFF) < 6000)
+            continue;
+
+        int syscallIndex = NTDLL::GetExportSsdtIndex(registrations[i].Name);
+        if(syscallIndex == -1)
+            return { STATUS_NOT_FOUND, hookCount };
+
+        hooks[hookCount].SyscallIndex = (ULONG)syscallIndex;
+        hooks[hookCount].HookFunction = registrations[i].Function;
+        hookCount++;
     }
-    return hook_count;
+
+    NTSTATUS status = InfinityHookBackend::Initialize(hooks, hookCount);
+    if(!NT_SUCCESS(status))
+        return { status, 0 };
+
+    return { STATUS_SUCCESS, InfinityHookBackend::InstalledCount() };
 }
 
 void Hooks::Deinitialize()
 {
-    SSDT::Unhook(hNtQueryInformationProcess, true);
-    SSDT::Unhook(hNtQueryInformationThread, true);
-    SSDT::Unhook(hNtQueryObject, true);
-    SSDT::Unhook(hNtQuerySystemInformation, true);
-    SSDT::Unhook(hNtSetInformationThread, true);
-    SSDT::Unhook(hNtClose, true);
-    SSDT::Unhook(hNtDuplicateObject, true);
-    SSDT::Unhook(hNtGetContextThread, true);
-    SSDT::Unhook(hNtSetContextThread, true);
-    SSDT::Unhook(hNtSystemDebugControl, true);
-    if((NtBuildNumber & 0xFFFF) >= 6000)
-    {
-        SSDT::Unhook(hNtCreateThreadEx, true);
-    }
+    InfinityHookBackend::Deinitialize();
 }
