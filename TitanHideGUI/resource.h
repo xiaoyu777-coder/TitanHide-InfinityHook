@@ -17,4 +17,7 @@
 #define IDC_CHK_SYSTEMDEBUGGERINFORMATION       1011
 #define IDC_CHK_NTSYSTEMDEBUGCONTROL            1012
 #define IDC_CHK_NTGETCONTEXTTHREAD              1013
+#define IDC_BTN_SELECTALL                       1014
+#define IDC_BTN_SELECTNONE                      1015
+#define IDC_BTN_SELECT_SAFE                     1016
 #define IDC_EDT_DRIVER                          40000

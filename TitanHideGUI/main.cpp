@@ -33,6 +33,24 @@ static ULONG GetTypeDword(HWND hwndDlg)
     return Option;
 }
 
+static void SetOptionChecks(HWND hwndDlg, ULONG Options)
+{
+    for (const auto& option : gOptions)
+    {
+        CheckDlgButton(hwndDlg, option.first, (Options & (ULONG)option.second) ? BST_CHECKED : BST_UNCHECKED);
+    }
+}
+
+static ULONG GetAllOptions()
+{
+    ULONG Options = 0;
+    for (const auto& option : gOptions)
+    {
+        Options |= (ULONG)option.second;
+    }
+    return Options;
+}
+
 static void TitanHideCall(HWND hwndDlg, HIDE_COMMAND Command)
 {
     char driverName[256] = "\\\\.\\";
@@ -63,10 +81,7 @@ static BOOL CALLBACK DlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
     case WM_INITDIALOG:
     {
         SetWindowTextA(GetDlgItem(hwndDlg, IDC_EDT_DRIVER), "TitanHide");
-        for (const auto& option : gOptions)
-        {
-            CheckDlgButton(hwndDlg, option.first, BST_CHECKED);
-        }
+        SetOptionChecks(hwndDlg, GetAllOptions());
         char driverName[256] = "";
         GetPrivateProfileStringA("TitanHide", "DriverName", "TitanHide", driverName, sizeof(driverName), iniPath);
         SetWindowTextA(GetDlgItem(hwndDlg, IDC_EDT_DRIVER), driverName);
@@ -98,6 +113,24 @@ static BOOL CALLBACK DlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
         case IDC_BTN_UNHIDEALL:
         {
             TitanHideCall(hwndDlg, UnhideAll);
+        }
+        return TRUE;
+
+        case IDC_BTN_SELECTALL:
+        {
+            SetOptionChecks(hwndDlg, GetAllOptions());
+        }
+        return TRUE;
+
+        case IDC_BTN_SELECTNONE:
+        {
+            SetOptionChecks(hwndDlg, 0);
+        }
+        return TRUE;
+
+        case IDC_BTN_SELECT_SAFE:
+        {
+            SetOptionChecks(hwndDlg, GetAllOptions() & ~(ULONG)HideThreadHideFromDebugger);
         }
         return TRUE;
         }
