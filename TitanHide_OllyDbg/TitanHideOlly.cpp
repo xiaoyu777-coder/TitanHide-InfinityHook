@@ -14,13 +14,13 @@ static DWORD ProcessId;
 
 static void TitanHideCall(DWORD ProcessId, HIDE_COMMAND Command)
 {
-    HANDLE hDevice = CreateFileA("\\\\.\\TitanHide", GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
+    HANDLE hDevice = CreateFileA("\\\\.\\InfinityHookHide", GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
     if(hDevice == INVALID_HANDLE_VALUE)
         return;
     HIDE_INFO HideInfo;
     HideInfo.Command = Command;
     HideInfo.Pid = ProcessId;
-    HideInfo.Type = 0xFFFFFFFF; //every possible option
+    HideInfo.Type = 0xFFFFFFF7; // TitanHide options mask
     DWORD written = 0;
     WriteFile(hDevice, &HideInfo, sizeof(HIDE_INFO), &written, 0);
     CloseHandle(hDevice);
