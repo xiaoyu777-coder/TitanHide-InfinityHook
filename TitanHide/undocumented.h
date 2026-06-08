@@ -499,6 +499,8 @@ public:
     static NTSTATUS NTAPI KeRaiseUserException(
         IN NTSTATUS ExceptionCode);
 
+    static PVOID KeRaiseUserExceptionAddress();
+
     static NTSTATUS NTAPI ZwSetInformationThread(
         IN HANDLE ThreadHandle,
         IN THREADINFOCLASS ThreadInformationClass,

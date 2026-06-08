@@ -263,6 +263,11 @@ NTSTATUS NTAPI Undocumented::KeRaiseUserException(
     return KeRUE(ExceptionCode);
 }
 
+PVOID Undocumented::KeRaiseUserExceptionAddress()
+{
+    return (PVOID)KeRUE;
+}
+
 NTSTATUS NTAPI Undocumented::ZwSetInformationThread(
     IN HANDLE ThreadHandle,
     IN THREADINFOCLASS ThreadInformationClass,
