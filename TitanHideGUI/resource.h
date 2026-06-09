@@ -25,4 +25,5 @@
 #define IDC_BTN_REFRESH_DRIVER                  1019
 #define IDC_EDT_DRIVER_PATH                     1020
 #define IDC_TXT_DRIVER_STATUS                   1021
+#define IDC_TXT_OPTIONS_TIP                     1022
 #define IDC_EDT_DRIVER                          40000

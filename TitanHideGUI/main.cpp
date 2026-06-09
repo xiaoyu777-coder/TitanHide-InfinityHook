@@ -64,6 +64,27 @@ static ULONG GetAllOptions()
     return Options;
 }
 
+static ULONG GetTitanHideOptions(HWND hwndDlg)
+{
+    if (GetTypeDword(hwndDlg) == 0)
+        return 0;
+
+    ULONG options = 0xFFFFFFFF;
+    for (const auto& option : gOptions)
+    {
+        if (!IsDlgButtonChecked(hwndDlg, option.first))
+            options &= ~(ULONG)option.second;
+    }
+    return options;
+}
+
+static void UpdateOptionsTip(HWND hwndDlg)
+{
+    char text[64] = "";
+    _snprintf_s(text, sizeof(text), _TRUNCATE, "TitanHideOptions (0x%08lX)", GetTitanHideOptions(hwndDlg));
+    SetWindowTextA(GetDlgItem(hwndDlg, IDC_TXT_OPTIONS_TIP), text);
+}
+
 static std::string GetDlgItemTextString(HWND hwndDlg, int controlId)
 {
     int length = GetWindowTextLengthA(GetDlgItem(hwndDlg, controlId));
@@ -527,7 +548,7 @@ static void TitanHideCall(HWND hwndDlg, HIDE_COMMAND Command)
     HIDE_INFO HideInfo;
     HideInfo.Command = Command;
     HideInfo.Pid = GetDlgItemInt(hwndDlg, IDC_EDT_PID, 0, FALSE);
-    HideInfo.Type = GetTypeDword(hwndDlg);
+    HideInfo.Type = GetTitanHideOptions(hwndDlg);
     DWORD written = 0;
     if(WriteFile(hDevice, &HideInfo, sizeof(HIDE_INFO), &written, 0))
         MessageBoxA(hwndDlg, "Data written!", "Done", MB_ICONINFORMATION);
@@ -549,6 +570,7 @@ static BOOL CALLBACK DlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
         SetWindowTextA(GetDlgItem(hwndDlg, IDC_EDT_DRIVER), driverName);
         SetDefaultDriverPath(hwndDlg);
         UpdateDriverStatus(hwndDlg);
+        UpdateOptionsTip(hwndDlg);
     }
     return TRUE;
 
@@ -583,18 +605,21 @@ static BOOL CALLBACK DlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
         case IDC_BTN_SELECTALL:
         {
             SetOptionChecks(hwndDlg, GetAllOptions());
+            UpdateOptionsTip(hwndDlg);
         }
         return TRUE;
 
         case IDC_BTN_SELECTNONE:
         {
             SetOptionChecks(hwndDlg, 0);
+            UpdateOptionsTip(hwndDlg);
         }
         return TRUE;
 
         case IDC_BTN_SELECT_SAFE:
         {
             SetOptionChecks(hwndDlg, GetAllOptions() & ~(ULONG)HideThreadHideFromDebugger);
+            UpdateOptionsTip(hwndDlg);
         }
         return TRUE;
 
@@ -616,6 +641,15 @@ static BOOL CALLBACK DlgMain(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lPar
             UpdateDriverStatus(hwndDlg);
         }
         return TRUE;
+        }
+
+        for (const auto& option : gOptions)
+        {
+            if (LOWORD(wParam) == option.first && HIWORD(wParam) == BN_CLICKED)
+            {
+                UpdateOptionsTip(hwndDlg);
+                return TRUE;
+            }
         }
     }
     return TRUE;
