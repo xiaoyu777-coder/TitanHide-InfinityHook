@@ -11,6 +11,36 @@ static KMUTEX gDebugPortMutex;
 static KMUTEX gRaiseUserExceptionMutex;
 static HOOK gKeRaiseUserExceptionHook = nullptr;
 
+static bool RegisterSyscallHook(
+    INFINITYHOOK_SYSCALL_HOOK* Hooks,
+    ULONG MaxHookCount,
+    ULONG* HookCount,
+    int SyscallIndex,
+    PVOID HookFunction)
+{
+    if(SyscallIndex == -1)
+        return true;
+    if(!Hooks || !HookCount || !HookFunction)
+        return false;
+
+    for(ULONG i = 0; i < *HookCount; i++)
+    {
+        if(Hooks[i].SyscallIndex == (ULONG)SyscallIndex)
+        {
+            Hooks[i].HookFunction = HookFunction;
+            return true;
+        }
+    }
+
+    if(*HookCount >= MaxHookCount)
+        return false;
+
+    Hooks[*HookCount].SyscallIndex = (ULONG)SyscallIndex;
+    Hooks[*HookCount].HookFunction = HookFunction;
+    (*HookCount)++;
+    return true;
+}
+
 //https://forum.tuts4you.com/topic/40011-debugme-vmprotect-312-build-886-anti-debug-method-improved/#comment-192824
 //https://github.com/x64dbg/ScyllaHide/issues/47
 //https://github.com/mrexodia/TitanHide/issues/27
@@ -284,7 +314,7 @@ static NTSTATUS NTAPI HookNtClose(
         else
         {
             Log("[TITANHIDE] NtClose(0x%p) by %d\r\n", Handle, pid);
-            Status = STATUS_INVALID_HANDLE;
+            Status = STATUS_SUCCESS;
         }
 
         KeReleaseMutex(&gDebugPortMutex, FALSE);
@@ -754,7 +784,7 @@ HOOKS_INITIALIZE_RESULT Hooks::Initialize()
         { "NtCreateThreadEx", (PVOID)HookNtCreateThreadEx, true },
     };
 
-    INFINITYHOOK_SYSCALL_HOOK hooks[ARRAYSIZE(registrations)] = {};
+    INFINITYHOOK_SYSCALL_HOOK hooks[ARRAYSIZE(registrations) * 2] = {};
     ULONG hookCount = 0;
 
     for(ULONG i = 0; i < ARRAYSIZE(registrations); i++)
@@ -762,26 +792,16 @@ HOOKS_INITIALIZE_RESULT Hooks::Initialize()
         if(registrations[i].VistaOrNewer && (NtBuildNumber & 0xFFFF) < 6000)
             continue;
 
-        int syscallIndex = NTDLL::GetExportSsdtIndex(registrations[i].Name);
+        const int syscallIndex = NTDLL::GetExportSsdtIndex(registrations[i].Name);
         if(syscallIndex == -1)
             return { STATUS_NOT_FOUND, hookCount };
 
-        bool duplicate = false;
-        for(ULONG j = 0; j < hookCount; j++)
-        {
-            if(hooks[j].SyscallIndex == (ULONG)syscallIndex)
-            {
-                hooks[j].HookFunction = registrations[i].Function;
-                duplicate = true;
-                break;
-            }
-        }
-        if(duplicate)
-            continue;
+        if(!RegisterSyscallHook(hooks, ARRAYSIZE(hooks), &hookCount, syscallIndex, registrations[i].Function))
+            return { STATUS_INSUFFICIENT_RESOURCES, hookCount };
 
-        hooks[hookCount].SyscallIndex = (ULONG)syscallIndex;
-        hooks[hookCount].HookFunction = registrations[i].Function;
-        hookCount++;
+        const int wow64SyscallIndex = NTDLL::GetWow64ExportSsdtIndex(registrations[i].Name);
+        if(!RegisterSyscallHook(hooks, ARRAYSIZE(hooks), &hookCount, wow64SyscallIndex, registrations[i].Function))
+            return { STATUS_INSUFFICIENT_RESOURCES, hookCount };
     }
 
     NTSTATUS status = InfinityHookBackend::Initialize(hooks, hookCount);
