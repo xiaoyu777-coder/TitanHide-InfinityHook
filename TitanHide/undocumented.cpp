@@ -69,10 +69,6 @@ typedef NTSTATUS(NTAPI* NTDUPLICATEOBJECT)(
     IN ULONG Options
 );
 
-typedef NTSTATUS(NTAPI* KERAISEUSEREXCEPTION)(
-    IN NTSTATUS ExceptionCode
-);
-
 typedef NTSTATUS(NTAPI* ZWSETINFORMATIONTHREAD)(
     IN HANDLE ThreadHandle,
     IN THREADINFOCLASS ThreadInformationClass,
@@ -159,7 +155,6 @@ static NTSETCONTEXTTHREAD NtGCT = 0;
 static NTSETCONTEXTTHREAD NtSCT = 0;
 static NTCONTINUE NtCon = 0;
 static NTDUPLICATEOBJECT NtDO = 0;
-static KERAISEUSEREXCEPTION KeRUE = 0;
 static ZWSETINFORMATIONTHREAD ZwSIT = 0;
 static NTSETINFORMATIONTHREAD NtSIT = 0;
 static NTSETINFORMATIONPROCESS NtSIP = 0;
@@ -255,17 +250,6 @@ NTSTATUS NTAPI Undocumented::NtDuplicateObject(
     IN ULONG Options)
 {
     return NtDO(SourceProcessHandle, SourceHandle, TargetProcessHandle, TargetHandle, DesiredAccess, HandleAttributes, Options);
-}
-
-NTSTATUS NTAPI Undocumented::KeRaiseUserException(
-    IN NTSTATUS ExceptionCode)
-{
-    return KeRUE(ExceptionCode);
-}
-
-PVOID Undocumented::KeRaiseUserExceptionAddress()
-{
-    return (PVOID)KeRUE;
 }
 
 NTSTATUS NTAPI Undocumented::ZwSetInformationThread(
@@ -411,14 +395,6 @@ bool Undocumented::UndocumentedInit()
         RtlInitUnicodeString(&routineName, L"NtDuplicateObject");
         NtDO = (NTDUPLICATEOBJECT)MmGetSystemRoutineAddress(&routineName);
         if(!NtDO)
-            return false;
-    }
-    if(!KeRUE)
-    {
-        UNICODE_STRING routineName;
-        RtlInitUnicodeString(&routineName, L"KeRaiseUserException");
-        KeRUE = (KERAISEUSEREXCEPTION)MmGetSystemRoutineAddress(&routineName);
-        if(!KeRUE)
             return false;
     }
     if(!ZwSIT)

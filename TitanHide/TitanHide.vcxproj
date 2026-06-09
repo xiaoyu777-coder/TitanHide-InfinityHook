@@ -203,7 +203,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="hider.cpp" />
-    <ClCompile Include="hooklib.cpp" />
+    <ClCompile Include="hooklib.cpp">
+      <ExcludedFromBuild Condition="'$(Platform)'=='x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="hooks.cpp" />
     <ClCompile Include="infinityhook\hde\hde64.cpp">
       <ExcludedFromBuild Condition="'$(Platform)'=='Win32'">true</ExcludedFromBuild>

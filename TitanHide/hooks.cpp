@@ -1,15 +1,12 @@
 #include "hooks.h"
 #include "undocumented.h"
 #include "infinityhook/infinityhook_backend.h"
-#include "hooklib.h"
 #include "hider.h"
 #include "misc.h"
 #include "log.h"
 #include "ntdll.h"
 
 static KMUTEX gDebugPortMutex;
-static KMUTEX gRaiseUserExceptionMutex;
-static HOOK gKeRaiseUserExceptionHook = nullptr;
 
 static bool RegisterSyscallHook(
     INFINITYHOOK_SYSCALL_HOOK* Hooks,
@@ -57,35 +54,6 @@ static bool RegisterSyscallHook(
         (*ReturnLength) = TempReturnLength
 
 #define OBJ_PROTECT_CLOSE 0x00000001L
-
-static NTSTATUS NTAPI HookKeRaiseUserException(
-    IN NTSTATUS ExceptionCode)
-{
-    ULONG pid = (ULONG)(ULONG_PTR)PsGetCurrentProcessId();
-    if(ExGetPreviousMode() == UserMode &&
-            Hider::IsHidden(pid, HideNtClose) &&
-            (ExceptionCode == STATUS_INVALID_HANDLE || ExceptionCode == STATUS_HANDLE_NOT_CLOSABLE))
-    {
-        Log("[TITANHIDE] KeRaiseUserException(0x%lX) by %d\r\n", ExceptionCode, pid);
-        return ExceptionCode;
-    }
-
-    KeWaitForSingleObject(&gRaiseUserExceptionMutex, Executive, KernelMode, FALSE, nullptr);
-
-    NTSTATUS status;
-    if(gKeRaiseUserExceptionHook && Hooklib::Unhook(gKeRaiseUserExceptionHook))
-    {
-        status = Undocumented::KeRaiseUserException(ExceptionCode);
-        Hooklib::Hook(gKeRaiseUserExceptionHook);
-    }
-    else
-    {
-        status = ExceptionCode;
-    }
-
-    KeReleaseMutex(&gRaiseUserExceptionMutex, FALSE);
-    return status;
-}
 
 static NTSTATUS NTAPI HookNtQueryInformationThread(
     IN HANDLE ThreadHandle,
@@ -758,7 +726,6 @@ static NTSTATUS NTAPI HookNtCreateThreadEx(
 HOOKS_INITIALIZE_RESULT Hooks::Initialize()
 {
     KeInitializeMutex(&gDebugPortMutex, 0);
-    KeInitializeMutex(&gRaiseUserExceptionMutex, 0);
 
     struct HOOK_REGISTRATION
     {
@@ -808,23 +775,10 @@ HOOKS_INITIALIZE_RESULT Hooks::Initialize()
     if(!NT_SUCCESS(status))
         return { status, 0 };
 
-    gKeRaiseUserExceptionHook = Hooklib::Hook(Undocumented::KeRaiseUserExceptionAddress(), (PVOID)HookKeRaiseUserException);
-    if(!gKeRaiseUserExceptionHook)
-    {
-        InfinityHookBackend::Deinitialize();
-        return { STATUS_UNSUCCESSFUL, 0 };
-    }
-
-    return { STATUS_SUCCESS, InfinityHookBackend::InstalledCount() + 1 };
+    return { STATUS_SUCCESS, InfinityHookBackend::InstalledCount() };
 }
 
 void Hooks::Deinitialize()
 {
-    if(gKeRaiseUserExceptionHook)
-    {
-        Hooklib::Unhook(gKeRaiseUserExceptionHook, true);
-        gKeRaiseUserExceptionHook = nullptr;
-    }
-
     InfinityHookBackend::Deinitialize();
 }
