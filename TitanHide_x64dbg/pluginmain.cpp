@@ -26,4 +26,10 @@ PLUG_EXPORT bool plugstop()
 
 PLUG_EXPORT void plugsetup(PLUG_SETUPSTRUCT* setupStruct)
 {
+    hwndDlg = setupStruct->hwndDlg;
+    hMenu = setupStruct->hMenu;
+    hMenuDisasm = setupStruct->hMenuDisasm;
+    hMenuDump = setupStruct->hMenuDump;
+    hMenuStack = setupStruct->hMenuStack;
+    TitanHideSetup(setupStruct);
 }

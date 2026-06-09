@@ -7,6 +7,7 @@
 #define PLUGIN_VERSION 1
 
 void TitanHideInit(PLUG_INITSTRUCT* initStruct);
+void TitanHideSetup(PLUG_SETUPSTRUCT* setupStruct);
 void TitanHideStop();
 
 #endif // _TEST_H
