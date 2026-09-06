@@ -55,6 +55,26 @@ static bool RegisterSyscallHook(
 
 #define OBJ_PROTECT_CLOSE 0x00000001L
 
+static bool IsDebugObjectTypeInformation(
+    OBJECT_TYPE_INFORMATION* TypeInformation,
+    ULONG ObjectInformationLength,
+    const UNICODE_STRING* DebugObject)
+{
+    if(ObjectInformationLength < sizeof(OBJECT_TYPE_INFORMATION) + DebugObject->Length)
+        return false;
+
+    ProbeForRead(TypeInformation, sizeof(OBJECT_TYPE_INFORMATION), 1);
+    if(TypeInformation->TypeName.Length != DebugObject->Length)
+        return false;
+
+    // NtQueryObject stores the type name directly after the fixed-size structure.
+    // Do not use TypeName.Buffer here: ReturnLength is written last by the kernel
+    // and callers may deliberately overlap it with that pointer.
+    WCHAR* InlineTypeName = (WCHAR*)(TypeInformation + 1);
+    ProbeForRead(InlineTypeName, DebugObject->Length, 1);
+    return RtlCompareMemory(InlineTypeName, DebugObject->Buffer, DebugObject->Length) == DebugObject->Length;
+}
+
 static NTSTATUS NTAPI HookNtQueryInformationThread(
     IN HANDLE ThreadHandle,
     IN THREADINFOCLASS ThreadInformationClass,
@@ -411,6 +431,63 @@ static NTSTATUS NTAPI HookNtQuerySystemInformation(
     return ret;
 }
 
+struct DEBUG_OBJECT_CONTRIBUTION
+{
+    ULONG Objects;
+    ULONG Handles;
+};
+
+static bool QueryDebugObjectContribution(DEBUG_OBJECT_CONTRIBUTION* Contribution)
+{
+    Contribution->Objects = 0;
+    Contribution->Handles = 0;
+
+    HANDLE DebugObjectHandle = nullptr;
+    NTSTATUS Status = Undocumented::ZwQueryInformationProcess(
+                          NtCurrentProcess(),
+                          ProcessDebugObjectHandle,
+                          &DebugObjectHandle,
+                          sizeof(DebugObjectHandle),
+                          nullptr);
+    if(!NT_SUCCESS(Status) || DebugObjectHandle == nullptr)
+        return false;
+
+    PUBLIC_OBJECT_BASIC_INFORMATION BasicInformation = {};
+    Status = ZwQueryObject(
+                 DebugObjectHandle,
+                 ObjectBasicInformation,
+                 &BasicInformation,
+                 sizeof(BasicInformation),
+                 nullptr);
+    ObCloseHandle(DebugObjectHandle, KernelMode);
+    if(!NT_SUCCESS(Status))
+        return false;
+
+    Contribution->Objects = 1;
+
+    // ProcessDebugObjectHandle opened the temporary handle queried above. Remove
+    // it from the per-object count to obtain the active debug object's actual
+    // contribution to the system-wide DebugObject handle total.
+    if(BasicInformation.HandleCount != 0)
+        Contribution->Handles = BasicInformation.HandleCount - 1;
+
+    return true;
+}
+
+static void RemoveDebugObjectContribution(
+    OBJECT_TYPE_INFORMATION* TypeInformation,
+    const DEBUG_OBJECT_CONTRIBUTION* Contribution)
+{
+    TypeInformation->TotalNumberOfObjects =
+        TypeInformation->TotalNumberOfObjects > Contribution->Objects
+        ? TypeInformation->TotalNumberOfObjects - Contribution->Objects
+        : 0;
+    TypeInformation->TotalNumberOfHandles =
+        TypeInformation->TotalNumberOfHandles > Contribution->Handles
+        ? TypeInformation->TotalNumberOfHandles - Contribution->Handles
+        : 0;
+}
+
 static NTSTATUS NTAPI HookNtQueryObject(
     IN HANDLE Handle OPTIONAL,
     IN OBJECT_INFORMATION_CLASS ObjectInformationClass,
@@ -418,6 +495,11 @@ static NTSTATUS NTAPI HookNtQueryObject(
     IN ULONG ObjectInformationLength,
     OUT PULONG ReturnLength OPTIONAL)
 {
+    // ZwQueryObject calls made by this hook must reach the original service and
+    // may write to kernel buffers. Hiding is only required for user-mode callers.
+    if(ExGetPreviousMode() == KernelMode)
+        return Undocumented::NtQueryObject(Handle, ObjectInformationClass, ObjectInformation, ObjectInformationLength, ReturnLength);
+
     NTSTATUS ret = Undocumented::NtQueryObject(Handle, ObjectInformationClass, ObjectInformation, ObjectInformationLength, ReturnLength);
     if(NT_SUCCESS(ret) && ObjectInformation)
     {
@@ -431,12 +513,13 @@ static NTSTATUS NTAPI HookNtQueryObject(
                 BACKUP_RETURNLENGTH();
 
                 OBJECT_TYPE_INFORMATION* type = (OBJECT_TYPE_INFORMATION*)ObjectInformation;
-                ProbeForRead(type->TypeName.Buffer, 1, 1);
-                if(RtlEqualUnicodeString(&type->TypeName, &DebugObject, FALSE)) //DebugObject
+                if(IsDebugObjectTypeInformation(type, ObjectInformationLength, &DebugObject))
                 {
                     Log("[TITANHIDE] DebugObject by %d\r\n", pid);
-                    type->TotalNumberOfObjects = 0;
-                    type->TotalNumberOfHandles = 0;
+
+                    DEBUG_OBJECT_CONTRIBUTION Contribution;
+                    if(QueryDebugObjectContribution(&Contribution))
+                        RemoveDebugObjectContribution(type, &Contribution);
                 }
 
                 RESTORE_RETURNLENGTH();
@@ -464,9 +547,9 @@ static NTSTATUS NTAPI HookNtQueryObject(
                     if(RtlEqualUnicodeString(&pObjectTypeInfo->TypeName, &DebugObject, FALSE)) //DebugObject
                     {
                         Log("[TITANHIDE] DebugObject by %d\r\n", pid);
-                        pObjectTypeInfo->TotalNumberOfObjects = 0;
-                        //Bug found by Aguila, thanks!
-                        pObjectTypeInfo->TotalNumberOfHandles = 0;
+                        DEBUG_OBJECT_CONTRIBUTION Contribution;
+                        if(QueryDebugObjectContribution(&Contribution))
+                            RemoveDebugObjectContribution(pObjectTypeInfo, &Contribution);
                     }
                     pObjInfoLocation = (unsigned char*)pObjectTypeInfo->TypeName.Buffer;
                     pObjInfoLocation += pObjectTypeInfo->TypeName.MaximumLength;
@@ -494,6 +577,11 @@ static NTSTATUS NTAPI HookNtQueryInformationProcess(
     IN ULONG ProcessInformationLength,
     OUT PULONG ReturnLength)
 {
+    // Internal ZwQueryInformationProcess calls use kernel buffers and must not
+    // be filtered as anti-debug queries from the hidden process.
+    if(ExGetPreviousMode() == KernelMode)
+        return Undocumented::NtQueryInformationProcess(ProcessHandle, ProcessInformationClass, ProcessInformation, ProcessInformationLength, ReturnLength);
+
     ULONG pid = Misc::GetProcessIDFromProcessHandle(ProcessHandle);
 
     // Handle ProcessDebugObjectHandle early

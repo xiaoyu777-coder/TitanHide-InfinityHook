@@ -6,20 +6,177 @@ jobs:
   build:
     # Skip building pull requests from the same repository
     if: ${{ github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
-    runs-on: windows-latest
+    runs-on: windows-2022
+    timeout-minutes: 60
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    
-    - name: Add msbuild to PATH
+
+    - name: Add Visual Studio 2022 MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
-    
-    - name: Build
+      with:
+        vs-version: '[17.0,18.0)'
+
+    - name: Build user-mode components
       run: |
-        msbuild.exe ${{ github.event.repository.name }}.sln /m /verbosity:minimal /t:Rebuild /p:Configuration=Release /p:Platform=x64
-        msbuild.exe ${{ github.event.repository.name }}.sln /m /verbosity:minimal /t:Rebuild /p:Configuration=Release /p:Platform=Win32
-        ./release.bat
-    
+        msbuild.exe ${{ github.event.repository.name }}.sln /m /verbosity:minimal "/t:TitanHideGUI:Rebuild;TitanHideTest:Rebuild;TitanHide_x64dbg:Rebuild;TitanHide_TitanEngine:Rebuild" /p:Configuration=Release /p:Platform=x64
+        msbuild.exe ${{ github.event.repository.name }}.sln /m /verbosity:minimal "/t:TitanHideGUI:Rebuild;TitanHideTest:Rebuild;TitanHide_x64dbg:Rebuild;TitanHide_OllyDbg:Rebuild;TitanHide_TitanEngine:Rebuild" /p:Configuration=Release /p:Platform=Win32
+
+    - name: Install Visual Studio 2019 Build Tools
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $installer = Join-Path $env:RUNNER_TEMP 'vs_buildtools_2019.exe'
+        Invoke-WebRequest 'https://aka.ms/vs/16/release/vs_buildtools.exe' -OutFile $installer
+        $arguments = @(
+          '--quiet', '--wait', '--norestart', '--nocache',
+          '--installPath', 'C:\BuildTools2019',
+          '--add', 'Microsoft.VisualStudio.Workload.VCTools',
+          '--includeRecommended'
+        )
+        $process = Start-Process $installer -ArgumentList $arguments -Wait -PassThru
+        if ($process.ExitCode -notin @(0, 3010)) {
+          throw "Visual Studio 2019 Build Tools installation failed with exit code $($process.ExitCode)"
+        }
+        if (-not (Test-Path 'C:\BuildTools2019\MSBuild\Current\Bin\MSBuild.exe')) {
+          throw 'Visual Studio 2019 MSBuild was not installed'
+        }
+
+    - name: Install WDK 19041.5738
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $kitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+        if (-not (Test-Path "$kitsRoot\Include\10.0.19041.0\um\Windows.h")) {
+          throw 'The matching Windows SDK 10.0.19041.0 is not installed on the runner'
+        }
+
+        $installer = Join-Path $env:RUNNER_TEMP 'wdksetup_19041.exe'
+        Invoke-WebRequest 'https://go.microsoft.com/fwlink/?linkid=2342425' -OutFile $installer
+        $process = Start-Process $installer -ArgumentList '/features', '+', '/quiet', '/norestart' -Wait -PassThru
+        if ($process.ExitCode -notin @(0, 3010)) {
+          throw "WDK 19041 installation failed with exit code $($process.ExitCode)"
+        }
+
+        # The runner already has a newer WDK, so Windows Installer does not
+        # downgrade the shared, unversioned 19041 MSBuild files. Extract that
+        # package from an offline layout and overlay only its build metadata.
+        $layout = Join-Path $env:RUNNER_TEMP 'wdk-19041-layout'
+        $process = Start-Process $installer -ArgumentList '/layout', $layout, '/quiet', '/norestart' -Wait -PassThru
+        if ($process.ExitCode -notin @(0, 3010)) {
+          throw "WDK 19041 layout failed with exit code $($process.ExitCode)"
+        }
+        $wdkMsi = Join-Path $layout 'Installers\Windows Driver Kit-x86_en-us.msi'
+        if (-not (Test-Path $wdkMsi)) { throw 'WDK 19041 layout is missing the core WDK package' }
+
+        $extractedWdk = Join-Path $env:RUNNER_TEMP 'wdk-19041-core'
+        $process = Start-Process msiexec.exe `
+          -ArgumentList '/a', "`"$wdkMsi`"", "TARGETDIR=`"$extractedWdk`"", '/qn' `
+          -Wait -PassThru
+        if ($process.ExitCode -ne 0) { throw "Core WDK extraction failed with exit code $($process.ExitCode)" }
+        $extractedKitsRoot = Join-Path $extractedWdk 'Windows Kits\10'
+        Copy-Item "$extractedKitsRoot\build\*" "$kitsRoot\build" -Recurse -Force
+        Copy-Item "$extractedKitsRoot\DesignTime\CommonConfiguration\Neutral\WDK\*.props" `
+          "$kitsRoot\DesignTime\CommonConfiguration\Neutral\WDK" -Force
+
+        $requiredFiles = @(
+          "$kitsRoot\Include\10.0.19041.0\km\ntifs.h",
+          "$kitsRoot\Lib\10.0.19041.0\km\x86\ntoskrnl.lib",
+          "$kitsRoot\Lib\10.0.19041.0\km\x64\ntoskrnl.lib",
+          "$kitsRoot\bin\10.0.19041.0\x86\signtool.exe",
+          "$kitsRoot\build\WindowsDriver.KernelMode.props",
+          "$kitsRoot\build\x64\ImportAfter\WDK.x64.WindowsKernelModeDriver.Platform.props",
+          "$kitsRoot\build\bin\Microsoft.DriverKit.Build.Tasks.16.0.dll",
+          "$kitsRoot\Vsix\VS2019\WDK.vsix"
+        )
+        foreach ($file in $requiredFiles) {
+          if (-not (Test-Path $file)) {
+            throw "WDK installation is incomplete: $file is missing"
+          }
+        }
+
+        # The WDK VSIX excludes the Build Tools SKU. Install its command-line
+        # MSBuild payload directly into the isolated VS 2019 Build Tools instance.
+        $vsixDirectory = Join-Path $env:RUNNER_TEMP 'wdk-vsix'
+        $vsixArchive = Join-Path $env:RUNNER_TEMP 'wdk-vsix.zip'
+        Copy-Item "$kitsRoot\Vsix\VS2019\WDK.vsix" $vsixArchive
+        Expand-Archive $vsixArchive -DestinationPath $vsixDirectory -Force
+        $msbuildPayload = Join-Path $vsixDirectory '$MSBuild'
+        Copy-Item "$msbuildPayload\*" 'C:\BuildTools2019\MSBuild' -Recurse -Force
+
+        $toolsetFiles = @(
+          'C:\BuildTools2019\MSBuild\Microsoft\VC\v160\Platforms\Win32\PlatformToolsets\WindowsKernelModeDriver10.0\Toolset.props',
+          'C:\BuildTools2019\MSBuild\Microsoft\VC\v160\Platforms\x64\PlatformToolsets\WindowsKernelModeDriver10.0\Toolset.props'
+        )
+        foreach ($file in $toolsetFiles) {
+          if (-not (Test-Path $file)) {
+            throw "WDK MSBuild integration is incomplete: $file is missing"
+          }
+        }
+
+    - name: Build Windows 7-compatible drivers
+      shell: pwsh
+      run: |
+        $msbuild = 'C:\BuildTools2019\MSBuild\Current\Bin\MSBuild.exe'
+        $kitsRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+        $commonArguments = @(
+          '${{ github.event.repository.name }}.sln',
+          '/m', '/verbosity:minimal', '/t:TitanHide:Rebuild',
+          '/p:Configuration=Release',
+          '/p:WindowsTargetPlatformVersion=10.0.19041.0',
+          "/p:DriverSignToolPath=$kitsRoot\bin\10.0.19041.0\x86\",
+          '/p:DriverSignToolExe=signtool.exe'
+        )
+
+        & $msbuild @commonArguments /p:Platform=x64 "/p:OutDir=$env:GITHUB_WORKSPACE\x64\Release\"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        & $msbuild @commonArguments /p:Platform=Win32 "/p:OutDir=$env:GITHUB_WORKSPACE\Release\"
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    - name: Validate and package artifacts
+      shell: pwsh
+      run: |
+        function Get-PeMachine([string]$path) {
+          if (-not (Test-Path $path)) { throw "PE image is missing: $path" }
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $path))
+          if ($bytes.Length -lt 64) { throw "PE image is truncated: $path" }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ($peOffset -lt 0 -or $peOffset + 6 -gt $bytes.Length) { throw "PE header is invalid: $path" }
+          if ([BitConverter]::ToUInt32($bytes, $peOffset) -ne 0x00004550) { throw "PE signature is invalid: $path" }
+          return [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+        }
+
+        function Get-PeSubsystemVersion([string]$path) {
+          $bytes = [IO.File]::ReadAllBytes((Resolve-Path $path))
+          if ($bytes.Length -lt 64) { throw "PE image is truncated: $path" }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          $optionalHeader = $peOffset + 24
+          if ($peOffset -lt 0 -or $optionalHeader + 52 -gt $bytes.Length) { throw "PE optional header is invalid: $path" }
+          $magic = [BitConverter]::ToUInt16($bytes, $optionalHeader)
+          if ($magic -notin @(0x010b, 0x020b)) { throw "PE optional header has an unsupported format: $path" }
+
+          # MajorSubsystemVersion and MinorSubsystemVersion are at +48/+50
+          # in both PE32 and PE32+. PE32's BaseOfData is balanced by PE32+
+          # widening ImageBase from four to eight bytes.
+          return [Version]::new(
+            [BitConverter]::ToUInt16($bytes, $optionalHeader + 48),
+            [BitConverter]::ToUInt16($bytes, $optionalHeader + 50))
+        }
+
+        $x86Driver = 'Release\TitanHide.sys'
+        $x64Driver = 'x64\Release\TitanHide.sys'
+        if ((Get-PeMachine $x86Driver) -ne 0x014c) { throw 'The x86 driver has the wrong machine type' }
+        if ((Get-PeMachine $x64Driver) -ne 0x8664) { throw 'The x64 driver has the wrong machine type' }
+        if ((Get-PeSubsystemVersion $x86Driver) -gt [Version]'6.1') { throw 'The x86 driver requires a post-Windows 7 subsystem' }
+        if ((Get-PeSubsystemVersion $x64Driver) -gt [Version]'6.1') { throw 'The x64 driver requires a post-Windows 7 subsystem' }
+
+        & .\release.bat
+        foreach ($architecture in @('x32', 'x64')) {
+          if (-not (Test-Path "bin\$architecture\TitanHide.sys")) { throw "The packaged $architecture driver is missing" }
+          if (-not (Test-Path "bin\$architecture\TitanHide.cer")) { throw "The packaged $architecture test certificate is missing" }
+        }
+
     - uses: actions/upload-artifact@v4
       with:
         name: ${{ github.event.repository.name }}-${{ github.sha }}

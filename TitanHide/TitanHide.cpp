@@ -82,9 +82,10 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
     UNICODE_STRING DriverName = {};
     if (RegistryPath != NULL && RegistryPath->Buffer != NULL)
     {
-        for (int i = 0; i < RegistryPath->Length / sizeof(WCHAR); i++)
+        const USHORT CharacterCount = (USHORT)(RegistryPath->Length / sizeof(WCHAR));
+        for (USHORT i = 0; i < CharacterCount; i++)
         {
-            auto index = RegistryPath->Length / sizeof(WCHAR) - i - 1;
+            USHORT index = CharacterCount - i - 1;
             if (RegistryPath->Buffer[index] == L'\\')
             {
                 index++; // skip the backslash
