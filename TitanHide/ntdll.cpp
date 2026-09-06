@@ -106,9 +106,21 @@ int NTDLL::GetExportSsdtIndex(const char* ExportName)
     return GetExportSsdtIndex(NativeFileData, NativeFileSize, ExportName);
 }
 
-int NTDLL::GetWow64ExportSsdtIndex(const char* ExportName)
+int NTDLL::GetWow64EncodedExportSsdtIndex(const char* ExportName)
 {
     return GetExportSsdtIndex(Wow64FileData, Wow64FileSize, ExportName);
+}
+
+int NTDLL::GetWow64ExportSsdtIndex(const char* ExportName)
+{
+    const int encodedIndex = GetExportSsdtIndex(Wow64FileData, Wow64FileSize, ExportName);
+    if(encodedIndex == -1)
+        return -1;
+
+    // Modern SysWOW64 ntdll stubs encode the native syscall number in the low
+    // 16 bits of eax. The high 16 bits select a WOW64 turbo thunk and are not
+    // part of the kernel syscall number used by InfinityHook.
+    return encodedIndex & 0xffff;
 }
 
 int NTDLL::GetExportSsdtIndex(const unsigned char* Data, ULONG Size, const char* ExportName)

@@ -8,7 +8,7 @@
 
 static DWORD pid = 0;
 static bool hidden = false;
-static std::string driverName = "TitanHide";
+static std::string driverName = "InfinityHookHide";
 
 enum TITANHIDE_MENU_ENTRY
 {

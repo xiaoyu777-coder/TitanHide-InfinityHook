@@ -10,6 +10,7 @@ public:
     static void Deinitialize();
     static int GetExportSsdtIndex(const char* ExportName);
     static int GetWow64ExportSsdtIndex(const char* ExportName);
+    static int GetWow64EncodedExportSsdtIndex(const char* ExportName);
 
 private:
     static int GetExportSsdtIndex(const unsigned char* Data, ULONG Size, const char* ExportName);

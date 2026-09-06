@@ -3,7 +3,7 @@
 
 namespace
 {
-    constexpr ULONG kMaxSyscallHooks = 32;
+    constexpr ULONG kMaxSyscallHooks = 64;
 
     INFINITYHOOK_SYSCALL_HOOK gHooks[kMaxSyscallHooks] = {};
     ULONG gHookCount = 0;

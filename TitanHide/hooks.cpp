@@ -302,7 +302,7 @@ static NTSTATUS NTAPI HookNtClose(
         else
         {
             Log("[TITANHIDE] NtClose(0x%p) by %d\r\n", Handle, pid);
-            Status = STATUS_SUCCESS;
+            Status = STATUS_INVALID_HANDLE;
         }
 
         KeReleaseMutex(&gDebugPortMutex, FALSE);
@@ -839,7 +839,7 @@ HOOKS_INITIALIZE_RESULT Hooks::Initialize()
         { "NtCreateThreadEx", (PVOID)HookNtCreateThreadEx, true },
     };
 
-    INFINITYHOOK_SYSCALL_HOOK hooks[ARRAYSIZE(registrations) * 2] = {};
+    INFINITYHOOK_SYSCALL_HOOK hooks[ARRAYSIZE(registrations) * 3] = {};
     ULONG hookCount = 0;
 
     for(ULONG i = 0; i < ARRAYSIZE(registrations); i++)
@@ -856,6 +856,12 @@ HOOKS_INITIALIZE_RESULT Hooks::Initialize()
 
         const int wow64SyscallIndex = NTDLL::GetWow64ExportSsdtIndex(registrations[i].Name);
         if(!RegisterSyscallHook(hooks, ARRAYSIZE(hooks), &hookCount, wow64SyscallIndex, registrations[i].Function))
+            return { STATUS_INSUFFICIENT_RESOURCES, hookCount };
+
+        // Some Windows builds report the encoded WOW64 value in KTHREAD, while
+        // others report only the native syscall number. Register both forms.
+        const int wow64EncodedSyscallIndex = NTDLL::GetWow64EncodedExportSsdtIndex(registrations[i].Name);
+        if(!RegisterSyscallHook(hooks, ARRAYSIZE(hooks), &hookCount, wow64EncodedSyscallIndex, registrations[i].Function))
             return { STATUS_INSUFFICIENT_RESOURCES, hookCount };
     }
 
