@@ -46,6 +46,22 @@ static std::string GetNormalizedDriverName()
     return name;
 }
 
+static void SetDriverName(const std::string& name)
+{
+    driverName = name;
+    BridgeSettingSet("TitanHide", "DriverName", driverName.c_str());
+    BridgeSettingFlush();
+}
+
+static std::string GetDriverNameFromDialog(HWND hwndDialog)
+{
+    char name[256] = "";
+    GetDlgItemTextA(hwndDialog, IDC_EDT_DRIVER_NAME, name, sizeof(name));
+    std::string normalizedName = name;
+    NormalizeDriverName(normalizedName);
+    return normalizedName;
+}
+
 static ULONG GetTitanHideOptions()
 {
     duint options = 0;
@@ -108,9 +124,8 @@ static void UpdateOptionsTip(HWND hwndDialog)
     SetWindowTextA(GetDlgItem(hwndDialog, IDC_TXT_OPTIONS_TIP), text);
 }
 
-static bool IsDriverLoaded()
+static bool IsDriverLoaded(const std::string& name)
 {
-    const std::string name = GetNormalizedDriverName();
     if (name.empty())
         return false;
 
@@ -121,9 +136,8 @@ static bool IsDriverLoaded()
     return GetLastError() == ERROR_INSUFFICIENT_BUFFER;
 }
 
-static void UpdateDriverStatus(HWND hwndDialog)
+static void UpdateDriverStatus(HWND hwndDialog, const std::string& name)
 {
-    const std::string name = GetNormalizedDriverName();
     char text[256] = "";
     if (name.empty())
     {
@@ -135,7 +149,7 @@ static void UpdateDriverStatus(HWND hwndDialog)
                     sizeof(text),
                     _TRUNCATE,
                     "Driver: %s (\\\\.\\%s)",
-                    IsDriverLoaded() ? "loaded" : "not loaded",
+                    IsDriverLoaded(name) ? "loaded" : "not loaded",
                     name.c_str());
     }
     SetWindowTextA(GetDlgItem(hwndDialog, IDC_TXT_DRIVER_STATUS), text);
@@ -168,7 +182,8 @@ static INT_PTR CALLBACK OptionsDlgProc(HWND hwndDialog, UINT uMsg, WPARAM wParam
     case WM_INITDIALOG:
     {
         SetOptionChecks(hwndDialog, GetTitanHideOptions());
-        UpdateDriverStatus(hwndDialog);
+        SetDlgItemTextA(hwndDialog, IDC_EDT_DRIVER_NAME, GetNormalizedDriverName().c_str());
+        UpdateDriverStatus(hwndDialog, GetNormalizedDriverName());
         UpdateOptionsTip(hwndDialog);
     }
     return TRUE;
@@ -185,6 +200,22 @@ static INT_PTR CALLBACK OptionsDlgProc(HWND hwndDialog, UINT uMsg, WPARAM wParam
         {
         case IDOK:
         {
+            const std::string newDriverName = GetDriverNameFromDialog(hwndDialog);
+            if (newDriverName.empty())
+            {
+                MessageBoxA(hwndDialog, "TitanHideName cannot be empty.", PLUGIN_NAME, MB_ICONERROR);
+                SetFocus(GetDlgItem(hwndDialog, IDC_EDT_DRIVER_NAME));
+                return TRUE;
+            }
+
+            const std::string oldDriverName = GetNormalizedDriverName();
+            if (newDriverName != oldDriverName)
+            {
+                SetDriverName(newDriverName);
+                _plugin_logprintf("[" PLUGIN_NAME "] New driver name: '%s'\n", driverName.c_str());
+            }
+            UpdateDriverStatus(hwndDialog, newDriverName);
+
             const ULONG oldOptions = GetTitanHideOptions();
             const ULONG newOptions = GetTitanHideOptions(hwndDialog);
             SetTitanHideOptions(newOptions);
@@ -203,7 +234,7 @@ static INT_PTR CALLBACK OptionsDlgProc(HWND hwndDialog, UINT uMsg, WPARAM wParam
 
         case IDC_BTN_REFRESH_DRIVER:
         {
-            UpdateDriverStatus(hwndDialog);
+            UpdateDriverStatus(hwndDialog, GetDriverNameFromDialog(hwndDialog));
         }
         return TRUE;
 
@@ -227,6 +258,12 @@ static INT_PTR CALLBACK OptionsDlgProc(HWND hwndDialog, UINT uMsg, WPARAM wParam
             UpdateOptionsTip(hwndDialog);
         }
         return TRUE;
+        }
+
+        if (LOWORD(wParam) == IDC_EDT_DRIVER_NAME && HIWORD(wParam) == EN_CHANGE)
+        {
+            UpdateDriverStatus(hwndDialog, GetDriverNameFromDialog(hwndDialog));
+            return TRUE;
         }
 
         for (const auto& option : gOptions)
@@ -337,9 +374,10 @@ static bool cbTitanHideName(int argc, char* argv[])
     }
     else
     {
-        driverName = argv[1];
-        NormalizeDriverName(driverName);
-        BridgeSettingSet("TitanHide", "DriverName", driverName.c_str());
+        std::string name = argv[1];
+        NormalizeDriverName(name);
+        if (!name.empty())
+            SetDriverName(name);
         _plugin_logprintf("[" PLUGIN_NAME "] New driver name: '%s'\n", driverName.c_str());
     }
     return true;
