@@ -44,6 +44,7 @@ static NTSTATUS DriverWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
 {
     UNREFERENCED_PARAMETER(DeviceObject);
     NTSTATUS RetStatus = STATUS_SUCCESS;
+    ULONG_PTR TransferredBytes = 0;
     PIO_STACK_LOCATION pIoStackIrp = IoGetCurrentIrpStackLocation(Irp);
     if(pIoStackIrp)
     {
@@ -51,7 +52,10 @@ static NTSTATUS DriverWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
         if(pInBuffer)
         {
             if(Hider::ProcessData(pInBuffer, pIoStackIrp->Parameters.Write.Length))
+            {
                 Log("[TITANHIDE] HiderProcessData OK!\r\n");
+                TransferredBytes = pIoStackIrp->Parameters.Write.Length;
+            }
             else
             {
                 Log("[TITANHIDE] HiderProcessData failed...\r\n");
@@ -65,7 +69,7 @@ static NTSTATUS DriverWrite(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
         RetStatus = STATUS_UNSUCCESSFUL;
     }
     Irp->IoStatus.Status = RetStatus;
-    Irp->IoStatus.Information = 0;
+    Irp->IoStatus.Information = TransferredBytes;
     IoCompleteRequest(Irp, IO_NO_INCREMENT);
     return RetStatus;
 }
